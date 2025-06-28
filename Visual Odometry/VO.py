@@ -9,8 +9,6 @@ import matplotlib.animation as animation
 
 
 class VisualOdometry():
-    # ... YOUR ENTIRE VisualOdometry CLASS REMAINS EXACTLY THE SAME ...
-    # ... NO CHANGES ARE NEEDED INSIDE THE CLASS ...
     def __init__(self, data_dir):
         self.K, self.P = self._load_calib(os.path.join(data_dir, 'calib.txt'))
         self.gt_poses = self._load_poses(os.path.join(data_dir, 'poses.txt'))
@@ -121,7 +119,6 @@ gt_path = []
 est_path = []
 
 # Initialize plot elements. We create them once and will only update their data later.
-# The comma is a standard trick to unpack the single-element list returned by plot()
 line_gt, = ax_path.plot([], [], 'b-', label='Ground Truth')
 line_est, = ax_path.plot([], [], 'g-', label='VO Estimate')
 # Display the first image
