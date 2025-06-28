@@ -8,7 +8,7 @@ A comprehensive, hands-on tutorial series covering essential computer vision too
 
 ## About This Project
 
-This repository provides a series of tutorials designed to bridge the gap between computer vision theory and practical application in aerial robotics. Whether you're a student, a hobbyist, or a researcher, these guides will walk you through the fundamental building blocks of spatial perception for drones and other autonomous systems. We cover foundational skills like object detection before progressing to building a complete, animated Visual Odometry pipeline from scratch.
+This repository provides a series of tutorials designed to bridge the gap between computer vision theory and practical application in aerial robotics. Whether you're a student, a hobbyist, or a researcher, these guides will walk you through the fundamental building blocks of spatial perception for drones and other autonomous systems. We cover foundational skills like object detection before progressing to building a complete, Vision-based navigation pipeline from scratch.
 
 ---
 
