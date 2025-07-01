@@ -3,12 +3,16 @@ import numpy as np
 import cv2
 import time
 
-# NEW: Matplotlib imports
+# Matplotlib imports for plotting and animation
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 
 class VisualOdometry():
+    """
+    A class to handle the core Visual Odometry logic, including data loading,
+    feature matching, and pose estimation.
+    """
     def __init__(self, data_dir):
         self.K, self.P = self._load_calib(os.path.join(data_dir, 'calib.txt'))
         self.gt_poses = self._load_poses(os.path.join(data_dir, 'poses.txt'))
@@ -51,28 +55,39 @@ class VisualOdometry():
         return T
 
     def get_matches(self, i):
+        """
+        Detects features and finds good matches between frame i-1 and i.
+        Returns coordinates of good matches and the keypoints from frame i.
+        """
         keypoints1, descriptors1 = self.orb.detectAndCompute(self.images[i - 1], None)
         keypoints2, descriptors2 = self.orb.detectAndCompute(self.images[i], None)
-        matches = self.flann.knnMatch(descriptors1, descriptors2, k=2)
+        
+        matches = []
+        if descriptors1 is not None and descriptors2 is not None:
+            matches = self.flann.knnMatch(descriptors1, descriptors2, k=2)
 
-        good = []
+        good_matches = []
         try:
             for m, n in matches:
                 if m.distance < 0.5 * n.distance:
-                    good.append(m)
+                    good_matches.append(m)
         except ValueError:
             pass
 
-        q1 = np.float32([keypoints1[m.queryIdx].pt for m in good])
-        q2 = np.float32([keypoints2[m.trainIdx].pt for m in good])
-        return q1, q2
+        q1 = np.float32([keypoints1[m.queryIdx].pt for m in good_matches])
+        q2 = np.float32([keypoints2[m.trainIdx].pt for m in good_matches])
+        
+        # Return keypoints from the current frame for visualization
+        return q1, q2, keypoints2
 
     def get_pose(self, q1, q2):
+        """Calculates the transformation matrix from feature matches."""
         Essential, mask = cv2.findEssentialMat(q1, q2, self.K)
         R, t = self.decomp_essential_mat(Essential, q1, q2)
         return self._form_transf(R, t)
 
     def decomp_essential_mat(self, E, q1, q2):
+        """Decomposes the Essential matrix to find the correct Rotation and Translation."""
         R1, R2, t = cv2.decomposeEssentialMat(E)
         T1 = self._form_transf(R1, np.ndarray.flatten(t))
         T2 = self._form_transf(R2, np.ndarray.flatten(t))
@@ -96,15 +111,10 @@ class VisualOdometry():
             positives.append(total_sum + relative_scale)
 
         max_idx = np.argmax(positives)
-        if (max_idx == 2):
-            return R1, np.ndarray.flatten(-t)
-        elif (max_idx == 3):
-            return R2, np.ndarray.flatten(-t)
-        elif (max_idx == 0):
-            return R1, np.ndarray.flatten(t)
-        elif (max_idx == 1):
-            return R2, np.ndarray.flatten(t)
-
+        if (max_idx == 2): return R1, np.ndarray.flatten(-t)
+        elif (max_idx == 3): return R2, np.ndarray.flatten(-t)
+        elif (max_idx == 0): return R1, np.ndarray.flatten(t)
+        elif (max_idx == 1): return R2, np.ndarray.flatten(t)
 
 # --- 1. SETUP ---
 data_dir = 'KITTI_sequence_2'
@@ -118,10 +128,9 @@ current_pose = None
 gt_path = []
 est_path = []
 
-# Initialize plot elements. We create them once and will only update their data later.
+# Initialize plot elements that will be updated in the animation.
 line_gt, = ax_path.plot([], [], 'b-', label='Ground Truth')
 line_est, = ax_path.plot([], [], 'g-', label='VO Estimate')
-# Display the first image
 imshow_obj = ax_video.imshow(vo.images[0], cmap='gray')
 
 
@@ -130,73 +139,76 @@ def update(frame_index):
     """This function is called by FuncAnimation for each new frame."""
     global current_pose
 
-    # Perform VO calculation
+    # Get the ground truth pose for the current frame
     gt_pose = vo.gt_poses[frame_index]
+    
+    # Initialize or update the VO pose
     if frame_index == 0:
         current_pose = gt_pose
+        current_keypoints = [] # No keypoints to draw on the first frame
     else:
-        q1, q2 = vo.get_matches(frame_index)
-        if q1 is not None and len(q1) > 5:
+        q1, q2, current_keypoints = vo.get_matches(frame_index)
+        if len(q1) > 5:
             try:
                 transf = vo.get_pose(q1, q2)
                 current_pose = np.matmul(current_pose, np.linalg.inv(transf))
-            except cv2.error:
-                # If get_pose fails, just continue with the previous pose
+            except (cv2.error, np.linalg.LinAlgError):
+                # If pose estimation fails, continue with the previous pose
                 pass
 
-    # Append the new data to our lists
+    # Append data for path plotting
     gt_path.append((gt_pose[0, 3], gt_pose[2, 3]))
     est_path.append((current_pose[0, 3], current_pose[2, 3]))
 
-    # Update the plot data. This is more efficient than replotting.
-    # We convert our list of tuples to a format matplotlib likes.
+    # Update path plot data
     gt_x, gt_y = zip(*gt_path)
     est_x, est_y = zip(*est_path)
     line_gt.set_data(gt_x, gt_y)
     line_est.set_data(est_x, est_y)
-
-    # Update the video frame
-    imshow_obj.set_data(vo.images[frame_index])
-
-    # Dynamically rescale the path plot axes
     ax_path.relim()
     ax_path.autoscale_view()
 
-    # Print progress
+    # --- ANNOTATE AND UPDATE VIDEO FRAME ---
+    # Convert the frame to color to draw colored annotations
+    frame_to_display = cv2.cvtColor(vo.images[frame_index], cv2.COLOR_GRAY2BGR)
+    # Draw the keypoints found on the current frame in green
+    annotated_frame = cv2.drawKeypoints(frame_to_display, current_keypoints, None, color=(0, 255, 0))
+    # Update the video frame plot with the annotated image
+    imshow_obj.set_data(annotated_frame)
+
     print(f"Processing frame {frame_index}")
 
-    # Return the artists that were updated
     return [line_gt, line_est, imshow_obj]
 
 
 # --- 3. SETUP AND RUN THE ANIMATION ---
 # Set up plot aesthetics
-ax_video.set_title('Video Feed')
-ax_video.axis('off')  # Hide axes for the video
+ax_video.set_title('Video Feed with ORB Features')
+ax_video.axis('off')
 ax_path.set_title('Path Plot')
 ax_path.set_xlabel('x (meters)')
 ax_path.set_ylabel('z (meters)')
 ax_path.legend()
-ax_path.set_aspect('equal', adjustable='box')  # Ensure aspect ratio is 1:1
+ax_path.set_aspect('equal', adjustable='box')
 
-# Create the animation object
-# blit=False is recommended when axis limits are changing, which they are here.
+# Create the animation object with all our desired settings
 ani = animation.FuncAnimation(fig, update, frames=len(vo.images),
-                              interval=50, blit=False, repeat = False)
+                              interval=200,      # Slower speed (200ms delay = 5 FPS)
+                              blit=False,        # Needed for changing axis limits
+                              repeat=False)      # Run animation only once
 
-# Show the plot. This is a blocking call that runs the animation loop.
+# Ensure a tight layout before saving or showing
 plt.tight_layout()
 
-# --- 4. SAVE AND SHOW THE PLOT (THE NEW PART) ---
+# # --- 4. SAVE AND SHOW ---
+# # Save the animation as an MP4 video file. Requires FFmpeg.
+# try:
+#     print("Saving animation to vo_animation.mp4... This may take a moment.")
+#     ani.save('vo_animation.mp4', writer='ffmpeg', dpi=150)
+#     print("...Animation saved successfully!")
+# except Exception as e:
+#     print(f"\nCould not save animation. Please ensure FFmpeg is installed and in your system's PATH.")
+#     print(f"Error: {e}\n")
 
-# This is the new line that saves the animation to a file.
-print("Saving animation to vo_animation.mp4... This may take a moment.")
-ani.save('vo_animation.mp4', writer='ffmpeg', dpi=150)
-print("...Animation saved successfully!")
-
-
-# Show the plot after saving.
-plt.show()
-
-
+# Show the interactive plot window
 plt.show()
